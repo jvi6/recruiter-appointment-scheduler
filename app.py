@@ -30,69 +30,116 @@ def availability():\
 \
     return render_template("availability.html", availability=availability)\
 \
-@app.route("/book", methods=["GET", "POST"])\
+@app.route('/book', methods=['GET', 'POST'])\
 def book():\
-    availability = load_json("availability.json")\
-    appointments = load_json("appointments.json")\
+    availability = load_json('availability.json')\
+    message = None\
 \
-    if request.method == "POST":\
-        name = request.form["name"]\
-        role = request.form["role"]\
-        slot = request.form["slot"]\
+    if request.method == 'POST':\
+        name = request.form.get('name', '').strip()\
+        role = request.form.get('role', '').strip()\
+        slot = request.form.get('slot')\
 \
+        # Validation: name required\
+        if not name:\
+            message = "Name is required."\
+            return render_template('book.html', availability=availability, message=message)\
+\
+        # Validation: role required\
+        if not role:\
+            message = "Role is required."\
+            return render_template('book.html', availability=availability, message=message)\
+\
+        # Validation: slot must exist\
         if slot not in availability:\
-            return "Slot unavailable."\
+            message = "Selected slot is no longer available."\
+            return render_template('book.html', availability=availability, message=message)\
 \
-        appointment = \{\
-            "name": name,\
+        # Validation: slot cannot be in the past\
+        from datetime import datetime\
+        slot_dt = datetime.strptime(slot, "%Y-%m-%d %H:%M")\
+        if slot_dt < datetime.now():\
+            message = "You cannot book a past date."\
+            return render_template('book.html', availability=availability, message=message)\
+\
+        # Save appointment\
+        appointments = load_json('appointments.json')\
+        appointments[name] = \{\
             "role": role,\
-            "original_time": slot,\
-            "rescheduled_time": None,\
-            "reschedule_reason": None,\
-            "reschedule_count": 0\
+            "slot": slot,\
+            "rescheduled": False,\
+            "reason": ""\
         \}\
+        save_json('appointments.json', appointments)\
 \
-        appointments.append(appointment)\
-        save_json("appointments.json", appointments)\
-\
+        # Remove slot from availability\
         availability.remove(slot)\
-        save_json("availability.json", availability)\
+        save_json('availability.json', availability)\
 \
-        return redirect("/appointments")\
+        message = "Appointment booked successfully!"\
+        return render_template('book.html', availability=availability, message=message)\
 \
     return render_template("book.html", availability=availability)\
 \
-@app.route("/reschedule", methods=["GET", "POST"])\
+@app.route('/reschedule', methods=['GET', 'POST'])\
 def reschedule():\
-    appointments = load_json("appointments.json")\
-    availability = load_json("availability.json")\
+    availability = load_json('availability.json')\
+    appointments = load_json('appointments.json')\
+    message = None\
 \
-    if request.method == "POST":\
-        name = request.form["name"]\
-        new_slot = request.form["slot"]\
-        reason = request.form["reason"]\
+    if request.method == 'POST':\
+        name = request.form.get('name', '').strip()\
+        new_slot = request.form.get('slot')\
+        reason = request.form.get('reason', '').strip()\
 \
-        for appt in appointments:\
-            if appt["name"] == name:\
-                if appt["reschedule_count"] == 1:\
-                    return "You have already rescheduled once."\
+        # Validation: name required\
+        if not name:\
+            message = "Name is required."\
+            return render_template('reschedule.html', availability=availability, message=message)\
 \
-                if new_slot not in availability:\
-                    return "Slot unavailable."\
+        # Validation: candidate must exist\
+        if name not in appointments:\
+            message = "No appointment found for this name."\
+            return render_template('reschedule.html', availability=availability, message=message)\
 \
-                availability.append(appt["original_time"])\
-                availability.remove(new_slot)\
+        # Validation: reason required\
+        if not reason:\
+            message = "Reschedule reason is required."\
+            return render_template('reschedule.html', availability=availability, message=message)\
 \
-                appt["rescheduled_time"] = new_slot\
-                appt["reschedule_reason"] = reason\
-                appt["reschedule_count"] = 1\
+        # Validation: cannot reschedule twice\
+        if appointments[name]["rescheduled"]:\
+            message = "You have already rescheduled once."\
+            return render_template('reschedule.html', availability=availability, message=message)\
 \
-                save_json("appointments.json", appointments)\
-                save_json("availability.json", availability)\
+        # Validation: new slot must exist\
+        if new_slot not in availability:\
+            message = "Selected slot is not available."\
+            return render_template('reschedule.html', availability=availability, message=message)\
 \
-                return redirect("/appointments")\
+        # Validation: new slot cannot be in the past\
+        from datetime import datetime\
+        slot_dt = datetime.strptime(new_slot, "%Y-%m-%d %H:%M")\
+        if slot_dt < datetime.now():\
+            message = "You cannot choose a past date."\
+            return render_template('reschedule.html', availability=availability, message=message)\
 \
-    return render_template("reschedule.html", availability=availability)\
+        # Update appointment\
+        old_slot = appointments[name]["slot"]\
+        appointments[name]["slot"] = new_slot\
+        appointments[name]["rescheduled"] = True\
+        appointments[name]["reason"] = reason\
+        save_json('appointments.json', appointments)\
+\
+        # Return old slot to availability\
+        availability.append(old_slot)\
+        availability.remove(new_slot)\
+        save_json('availability.json', availability)\
+\
+        message = "Appointment rescheduled successfully!"\
+        return render_template('reschedule.html', availability=availability, message=message)\
+\
+    return render_template('reschedule.html', availability=availability)\
 \
 @app.route("/appointments")\
 def appointments_view():\
